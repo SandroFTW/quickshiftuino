@@ -1,7 +1,8 @@
 // Uncomment to use load cell instead of piezo sensor
-#define LOADCELL
+//#define LOADCELL
 
 // CHANGE CONSOLE DEBUG OUTPUT
+//#define DEBUG_SENSOR_PLOT
 //#define DEBUG_SENSOR
   #define DEBUG_SHIFT
 //#define DEBUG_RPM
