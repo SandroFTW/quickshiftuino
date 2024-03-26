@@ -1,4 +1,18 @@
 # quickshiftuino
+## Latest development (edited 26.03.2024)
+So the system has been running great for the last few months!
+
+Besides a few false neutrals that can be reduced with a lower shift sensitivity I had no issues. Currently I'm still only using the Piezo sensor and I'm not planning on changing to the load cell.
+One idea to completely eliminate false neutrals and make configuration much easier was to add a hall sensor to the shift lever. This sensor can detect when the geear is fully engaged, which removes the need for set cutoff times.
+
+<img src='img/electronics.jpg' width='170'> <img src='img/harness.jpg' width='500'>
+
+The electronics are still in a very messy state but I haven't bothered changing anything because it's been working so well...
+
+The main box has two additional PCBs: A voltage divider for the piezo sensor and a filter circuit for RPM measurement directly from the ignition coil power line.
+
+<br>
+
 ## Overview
 Quickshiftuino is a simple device that detects the shift motion in the gear lever linkage and cuts the ignition coil power for a specified time.
 This enables clutchless upshifting (and in some situations downshifting) by unloading the gearbox and drivetrain.
@@ -11,7 +25,7 @@ My main idea was to keep it simple so it's as universal as possible. That's why 
 
 The V1 PCB had a few issues with the power switching logic (high side P-MOS was wired incorrectly):
 
-<img src='img/pcb.jpeg' width='400'>
+<img src='img/pcb.jpeg' width='350'>
 
 <br>
 
