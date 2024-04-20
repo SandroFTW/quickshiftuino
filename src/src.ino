@@ -9,7 +9,7 @@
 #define rpmLoopTime      200  // 5 Hz
 
 #define cutTime1         60    // 3000 - 5375   RPM
-#define cutTime2         60    // 5376 - 7750   RPM  // War vorher 55
+#define cutTime2         55    // 5376 - 7750   RPM
 #define cutTime3         55    // 7751 - 10125  RPM
 #define cutTime4         50    // 10126 - 12500 RPM
 
@@ -22,10 +22,10 @@
 #define rpmFactor        60 * ((1000 / rpmLoopTime))
 
 // SENSITIVITY VALUES
-#define cutSensitivity   280   // min. piezo force threshold
+#define cutSensitivity   240   // min. piezo force threshold
 
 // PIN DEFINES
-#define PIEZO_SENSOR     18 // A4  (Piezo Sensor Pin)
+#define PIEZO_SENSOR     17 // A3  (Piezo Sensor Pin) (A4/18; A5/19 broken)
 #define CUT_SIG          10 // D10, PB2 (Ignition cut MOSFET pin)
 #define GREEN_LED        3  // D3
 //#define RED_LED          2  // D2
@@ -46,6 +46,7 @@ static float lastRPM = 0;                 // Last calculated RPM
 static int sensorValue = 0;
 
 // CALCULATE CUTOFF TIME BASED ON ENGINE RPM
+/*
 int cutoffTime()
 {
   if (lastRPM >= minRPM && lastRPM <= (minRPM + rpmStep))
@@ -65,6 +66,29 @@ int cutoffTime()
     return cutTime4;
   }
 }
+*/
+
+int cutoffTime() // rpmstep = 2375
+{
+  int step = (lastRPM - minRPM) / rpmStep;
+
+  if (step == 0)
+  {
+    return cutTime1;
+  }
+  else if (step == 1)
+  {
+    return cutTime2;
+  }
+  else if (step == 2)
+  {
+    return cutTime3;
+  }
+  else if (step >= 3)
+  {
+    return cutTime4;
+  }
+}
 
 void disable_ign()
 {
@@ -78,7 +102,7 @@ void disable_ign()
 void enable_ign()
 {
   PORTB |= (1 << 2); // Enable Ignition
-  PORTD &= ~(1 << 3)   // Disable Green LED
+  PORTD &= ~(1 << 3);   // Disable Green LED
 
   //digitalWrite(CUT_SIG, HIGH);
   //digitalWrite(GREEN_LED, LOW);
@@ -103,13 +127,13 @@ void setup()
 
   //pinMode(PIEZO_SENSOR, INPUT);
 
-  DDRD |= (1 << DDD3) // D3 (Green LED) as Output
-  DDRB |= (1 << DDB2) // D10 (Ign Cut FET) as Output
+  DDRD |= (1 << DDD3); // D3 (Green LED) as Output
+  DDRB |= (1 << DDB2); // D10 (Ign Cut FET) as Output
 
-  PORTD &= ~(1 << DDD3) // Turn off Green LED
-  PORTB |= (1 << DDB2) // Turn on Ignition
+  PORTD &= ~(1 << DDD3); // Turn off Green LED
+  PORTB |= (1 << DDB2); // Turn on Ignition
 
-  DDRC &= ~(1 << DDC4) // A4 (Piezo) as Input
+  DDRC &= ~(1 << DDC4); // A4 (Piezo) as Input
 
   Serial.begin(57600); // 115200
 
