@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quickshiftuino Debug</title>
+</head>
+<body>
+  <h2>Quickshiftuino Debug</h2>
+  <p id="adcValue1">Connecting...</p>
+  <p id="adcValue2">Connecting...</p>
+  <script>
+    const adcValueElement1 = document.getElementById('adcValue1');
+    const adcValueElement2 = document.getElementById('adcValue2');
+    const ws = new WebSocket(`ws://${location.hostname}:81/`);
+
+    ws.onmessage = function(event) {
+      const [adcValue1, adcValue2] = event.data.split(",");
+      adcValueElement1.innerText = `Piezo: ${adcValue1}`;
+      adcValueElement2.innerText = `RPM: ${adcValue2}`;
+    };
+  </script>
+</body>
+</html>

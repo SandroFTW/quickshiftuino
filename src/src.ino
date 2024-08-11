@@ -1,128 +1,303 @@
-// CHANGE CONSOLE DEBUG OUTPUT
-//#define DEBUG_SENSOR
-//#define DEBUG_SENSOR_PLOT
-//#define DEBUG_HALL_PLOT
-//#define DEBUG_SHIFT
-//#define DEBUG_RPM
+#include <WebSocketsServer.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncWebConfig.h>
+#include <AsyncTCP.h>
+#include <SPIFFS.h>
+#include <WiFi.h>
 
-// Possible BUGS in Hall Mode: - Gear is not engaged anymore after 5ms time has passen -> false neutral
-//                             - Engine shuts off because gearSensitivity is never reached (always turn on ignition after cutSafeTime?)
+WebSocketsServer webSocket = WebSocketsServer(81);
 
-#define USE_HALL
+// MAIN CONFIGURATION
+#define loopTime         2    // 500 Hz
+#define rpmLoopTime      400  // 2.5 Hz
 
-// QUICKSHIFTER CONFIGURATION
-#define loopTime         5    // 200 Hz
-#define rpmLoopTime      200  // 5 Hz
-
-#define cutTime1         85    // 3000 - 5375   RPM 60
-#define cutTime2         80    // 5376 - 7750   RPM 55
-#define cutTime3         75    // 7751 - 10125  RPM 55
-#define cutTime4         70    // 10126 - 12500 RPM 50
-#define cutSafeTime      150
-
-#define minRPM           2500  // min. required RPM to allow QS    3000
-#define maxRPM           12500 // Engine RPM for minCutTime (still works above, always cutTimeMin)
-#define rpmStep          (maxRPM - minRPM) / 4
-
-#define delayTime        25   // 25 ms (delay after trigger force is reached)
-#define deadTime         300  // 300 ms (dead time before next cut)
 #define rpmFactor        60 * ((1000 / rpmLoopTime))
 
-// SENSITIVITY VALUES
-#define cutSensitivity    220   // min. piezo force threshold
-#define cancelSensitivity -40   // threshold to detect downshift direction
-#define centerSensitivity 0     // value to sense gear lever in center position
-#define gearSensitivity   200   // threshold to sense gear fully engaged
-#define centerTolerance   30    // +/- tolerance for center position
-
 // PIN DEFINES
-#define PIEZO_SENSOR     17 // A3  (Piezo Sensor Pin) (A4/18; A5/19 broken)
-#define HALL_SENSOR      16 // A2  (Hall Sensor Pin)
-#define CUT_SIG          10 // D10, PB2 (Ignition cut MOSFET pin)
-#define GREEN_LED        3  // D3
-//#define RED_LED          2  // D2
+#define GREEN_LED 5
+#define RED_LED 6
+#define IGN_FET_1 1
+#define IGN_FET_2 2
+#define PIEZO_PIN 13
+#define RPM_PIN 7
 
 // GLOBAL VARIABLES
-static unsigned long lastPrintMillis = 0; // Time of last Serial.print for Sensor value
 static unsigned long lastPulseMillis = 0; // Time of last RPM calculation
-static unsigned long lastCutMillis = 0;   // Time of last shiftQueued
+static unsigned long lastCutMillis = 0;   // Time of last ignition cut begin
 static unsigned long currMillis = 0;      // millis()
 static unsigned long lastMillis = 0;      // Last cycle millis() (currMillis - loopTime)
-static unsigned long finishedMillis = 0;  // Time when hall sensor detected gear fully engaged
+static unsigned int coilsDisabled = 0;    // Is ignition currently disabled?
 static volatile int pulseCount = 0;       // Ignition interrupt count since last RPM calculation
-static bool ignitionDisabled = false;     // Is ignition currently disabled?
-static bool shiftCooldown = true;         // Is QS on cooldown after last shift?
-static bool shiftQueued = false;          // Is shiftQueued because threshold was reached?
-static float cutTime = 0;                 // Calculated cutTime based on RPM
+static int currRpmRange = 0;              // 0-4 to choose cutoffTime from array
 static float lastRPM = 0;                 // Last calculated RPM
+static volatile bool redled = false;      // Used to toggle red LED on RPM pulse
 
 static int sensorValue = 0;
-static int hallValue = 0;
 
-int cutoffTime() // rpmstep = 2375
+String params = "["
+  "{"
+  "'name':'password',"
+  "'label':'WiFi password',"
+  "'type':"+String(INPUTPASSWORD)+","
+  "'default':''"
+  "},"
+  // "{"
+  // "'name':'opmode',"
+  // "'label':'Operation Mode',"
+  // "'type':"+String(INPUTSELECT)+","
+  // "'options':["
+  // "{'v':'PS','l':'Piezo Static'},"
+  // "{'v':'PH','l':'Piezo Hall'},"
+  // "{'v':'LS','l':'Loadcell Static'},"
+  // "{'v':'LH','l':'Loadcell Hall'}],"
+  // "'default':'PS'"
+  // "},"
+  "{"
+  "'name':'cuttime1_1',"
+  "'label':'Cuttime 1 (2500-4500)',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':20,'max':200,"
+  "'default':'62'"
+  "},"
+  "{"
+  "'name':'cuttime1_2',"
+  "'label':'Cuttime 1 (4500-6500)',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':20,'max':200,"
+  "'default':'58'"
+  "},"
+  "{"
+  "'name':'cuttime1_3',"
+  "'label':'Cuttime 1 (6500-8500)',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':20,'max':200,"
+  "'default':'52'"
+  "},"
+  "{"
+  "'name':'cuttime1_4',"
+  "'label':'Cuttime 1 (8500-10500)',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':20,'max':200,"
+  "'default':'50'"
+  "},"
+  "{"
+  "'name':'cuttime1_5',"
+  "'label':'Cuttime 1 (10500-12500)',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':20,'max':200,"
+  "'default':'50'"
+  "},"
+  "{"
+  "'name':'cuttime2_1',"
+  "'label':'Cuttime 2 (2500-4500)',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':20,'max':200,"
+  "'default':'66'"
+  "},"
+  "{"
+  "'name':'cuttime2_2',"
+  "'label':'Cuttime 2 (4500-6500)',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':20,'max':200,"
+  "'default':'62'"
+  "},"
+  "{"
+  "'name':'cuttime2_3',"
+  "'label':'Cuttime 2 (6500-8500)',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':20,'max':200,"
+  "'default':'54'"
+  "},"
+  "{"
+  "'name':'cuttime2_4',"
+  "'label':'Cuttime 2 (8500-10500)',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':20,'max':200,"
+  "'default':'54'"
+  "},"
+  "{"
+  "'name':'cuttime2_5',"
+  "'label':'Cuttime 2 (10500-12500)',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':20,'max':200,"
+  "'default':'52'"
+  "},"
+  "{"
+  "'name':'minrpm',"
+  "'label':'Min RPM',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':1000,'max':20000,"
+  "'default':'2500'"
+  "},"
+  "{"
+  "'name':'maxrpm',"
+  "'label':'Max RPM',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':100,'max':20000,"
+  "'default':'12500'"
+  "},"
+  "{"
+  "'name':'rpmmult',"
+  "'label':'RPM Multiplier',"
+  "'type':"+String(INPUTTEXT)+","
+  "'default':'1.00'"
+  "},"
+  "{"
+  "'name':'deadtime',"
+  "'label':'Dead time',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':0,'max':1000,"
+  "'default':'350'"
+  "},"
+  "{"
+  "'name':'cutsensitivity',"
+  "'label':'Cut sensitivity',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':0,'max':2000,"
+  "'default':'250'"
+  "}"
+  "]";
+
+AsyncWebServer server(80);
+AsyncWebConfig conf;
+
+struct cfgOptions
 {
-  int step = (lastRPM - minRPM) / rpmStep;
+  char ssid[32];
+  char password[32];
 
-  if (step == 0)
+  char opmode[4];      // PS, PH, LS, LH
+
+  int cutTime1[5]; // ms
+  int cutTime2[5]; // ms
+
+  int minRPM;          // 1/min
+  int maxRPM;          // 1/min
+
+  float rpmMult;       // factor
+  int deadTime;        // ms
+
+  int cutSensitivity;
+} cfg;
+
+
+
+void transferWebconfToStruct(String results)
+{
+    //cfg.opmode = conf.getString("opmode");
+
+    cfg.cutTime1[0] = conf.getInt("cuttime1_1");
+    cfg.cutTime1[1] = conf.getInt("cuttime1_2");
+    cfg.cutTime1[2] = conf.getInt("cuttime1_3");
+    cfg.cutTime1[3] = conf.getInt("cuttime1_4");
+    cfg.cutTime1[4] = conf.getInt("cuttime1_5");
+
+    cfg.cutTime2[0] = conf.getInt("cuttime2_1");
+    cfg.cutTime2[1] = conf.getInt("cuttime2_2");
+    cfg.cutTime2[2] = conf.getInt("cuttime2_3");
+    cfg.cutTime2[3] = conf.getInt("cuttime2_4");
+    cfg.cutTime2[4] = conf.getInt("cuttime2_5");
+
+    cfg.minRPM = conf.getInt("minrpm");
+    cfg.maxRPM = conf.getInt("maxrpm");
+
+    cfg.rpmMult = conf.getFloat("rpmmult");
+    cfg.deadTime = conf.getInt("deadtime");
+
+    cfg.cutSensitivity = conf.getInt("cutsensitivity");
+}
+
+void handleRoot(AsyncWebServerRequest *request)
+{
+  conf.handleFormRequest(request);
+  /*
+  if (request->hasParam("SAVE"))
   {
-    return cutTime1;
-  }
-  else if (step == 1)
+    transferWebconfToStruct();
+  }*/
+}
+
+// Create a task that will be executed on Core 0 (instead of 1)
+TaskHandle_t Task1;
+void push_debug(void *parameters)
+{
+  for (;;)
   {
-    return cutTime2;
-  }
-  else if (step == 2)
-  {
-    return cutTime3;
-  }
-  else if (step >= 3)
-  {
-    return cutTime4;
+    String broadcastString = String(sensorValue) + "," + String(lastRPM);
+
+    webSocket.loop();
+    webSocket.broadcastTXT(broadcastString);
+
+    delay(50);
   }
 }
 
 void disable_ign()
 {
-  PORTB &= ~(1 << 2);  // Disable Ignition
-  PORTD |= (1 << 3); // Enable Green LED
-
-  //digitalWrite(CUT_SIG, LOW);
-  //digitalWrite(GREEN_LED, HIGH);
+  digitalWrite(IGN_FET_1, LOW);
+  digitalWrite(IGN_FET_2, LOW);
+  digitalWrite(GREEN_LED, LOW);
 }
 
-void enable_ign()
+void enable_ign_1()
 {
-  PORTB |= (1 << 2); // Enable Ignition
-  PORTD &= ~(1 << 3);   // Disable Green LED
+  digitalWrite(IGN_FET_1, HIGH);
+}
 
-  //digitalWrite(CUT_SIG, HIGH);
-  //digitalWrite(GREEN_LED, LOW);
+void enable_ign_2()
+{
+  digitalWrite(IGN_FET_2, HIGH);
+  digitalWrite(GREEN_LED, HIGH);
 }
 
 void countPulse()
 {
   pulseCount++;
+  digitalWrite(RED_LED, (redled ? HIGH : LOW));
+  redled = !redled;
 }
 
 
 
 void setup()
 {
-  DDRD |= (1 << DDD3); // D3 (Green LED) as Output
-  DDRB |= (1 << DDB2); // D10 (Ign Cut FET) as Output
+  pinMode(GREEN_LED, OUTPUT); // Green LED
+  pinMode(RED_LED, OUTPUT); // Red LED
+  pinMode(IGN_FET_1, OUTPUT); // Ign Fet 1
+  pinMode(IGN_FET_2, OUTPUT); // Ign Fet 2
 
-  PORTD &= ~(1 << DDD3); // Turn off Green LED
-  PORTB |= (1 << DDB2); // Turn on Ignition
+  digitalWrite(GREEN_LED, HIGH);
+  digitalWrite(RED_LED, HIGH);
 
-  DDRC &= ~(1 << DDC4); // A4 (Piezo) as Input
-  DDRC &= ~(1 << DDC2); // A2 (Hall) as Input
+  digitalWrite(IGN_FET_1, HIGH);
+  digitalWrite(IGN_FET_2, HIGH);
 
-  Serial.begin(57600); // 115200
+  pinMode(PIEZO_PIN, INPUT); // Piezo Sensor
 
   // Interrupt routine for ingition pulse counting / RPM calculation
-  DDRD &= ~(1 << 2); // Set D2 as input pin
-  PORTD |= (1 << 2); // Enable internal pullup for D2
-  attachInterrupt(0, countPulse, RISING); // D2 as Interrupt
+  pinMode(RPM_PIN, INPUT_PULLUP);
+  attachInterrupt(RPM_PIN, countPulse, RISING);
+
+  conf.setDescription(params);
+  conf.readConfig();
+  transferWebconfToStruct("");
+
+  WiFi.mode(WIFI_AP);
+  WiFi.setTxPower(WIFI_POWER_7dBm);
+  WiFi.softAP(conf.getApName(), conf.values[0].c_str());
+
+  server.on("/", handleRoot);
+
+  server.on("/debug.html", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(SPIFFS, "/debug.html", "text/html");
+  });
+
+  conf.registerOnSave(transferWebconfToStruct);
+
+  server.begin();
+  webSocket.begin();
+
+  xTaskCreatePinnedToCore(push_debug, "CPU_0", 10000, NULL, 1, &Task1, 0);
 }
 
 void loop()
@@ -131,124 +306,38 @@ void loop()
 
   if (currMillis >= (lastMillis + loopTime))
   {
-    sensorValue = analogRead(PIEZO_SENSOR) - 512;
-    hallValue = analogRead(HALL_SENSOR) - 512;
+    sensorValue = (analogRead(PIEZO_PIN) - 2048) * (-1);
+
     lastMillis = currMillis;
-
-    if (currMillis >= lastPrintMillis + 35)
-    {
-      #ifdef DEBUG_SENSOR
-        Serial.print(currMillis); Serial.print(" - sensorValue: "); Serial.println(sensorValue);
-      #endif
-
-      #ifdef DEBUG_SENSOR_PLOT
-        Serial.print("min:-512,max:512,sensorValue:"); Serial.println(sensorValue);
-      #endif
-
-      #ifdef DEBUG_HALL_PLOT
-        Serial.print("min:0,max:1023,hallValue:"); Serial.println(hallValue);
-      #endif
-
-      lastPrintMillis = currMillis;
-    }
   }
 
-  /* ######################### Shift pressure detection and ignition Cut ######################### */
-  // shiftQueued when threshold is reached and not on cooldown
-  if (sensorValue >= cutSensitivity && !shiftQueued && !shiftCooldown)
+  /* ######################### Shift pressure detection and ignition cut ######################### */
+  // Disable ignition when pressure is sensed and sufficient RPM
+  if (lastRPM >= cfg.minRPM && coilsDisabled == 0 && sensorValue >= cfg.cutSensitivity && currMillis >= (lastCutMillis + cfg.deadTime))
   {
-    if (lastRPM >= minRPM)
-    {
-      lastCutMillis = currMillis;
-      shiftQueued = true;
-
-      #ifdef DEBUG_SHIFT
-        Serial.print(currMillis); Serial.print(" - shiftQueued = true - RPM: "); Serial.println(lastRPM);
-      #endif
-    }
-    else
-    {
-      shiftCooldown = true;
-
-      #ifdef DEBUG_SHIFT
-        Serial.print(currMillis); Serial.print(" - RPM too low: "); Serial.println(lastRPM);
-      #endif
-    }
-  }
-
-  // Wait for delayTime if shiftQueued
-  if (currMillis >= (lastCutMillis + delayTime) && shiftQueued)
-  {
-    #ifdef DEBUG_SHIFT
-      Serial.print(currMillis); Serial.print(" - shiftQueued and delayTime passed - sensorValue: "); Serial.println(sensorValue);
-    #endif
-
-    if (sensorValue >= cutSensitivity)// Check if sensor still above threshold
-    {
       disable_ign();
-      Serial.println("Ignition disabled.");
+      coilsDisabled = 2;
 
-      cutTime = cutoffTime();
-      ignitionDisabled = true;
-      shiftCooldown = true;
-      shiftQueued = false;
+      currRpmRange = map(lastRPM, cfg.minRPM, cfg.maxRPM, 0, 4);
 
-      #ifdef DEBUG_SHIFT
-        Serial.print(currMillis); Serial.print(" - Shift executed (Ignition Disabled) - Cut Time: "); Serial.println(cutTime);
-      #endif
-    }
-    else // Cancel if below threshold
-    {
-      shiftQueued = false;
-
-      #ifdef DEBUG_SHIFT
-        Serial.print(currMillis); Serial.println(" - Shift canceled (Sensor force insufficient)\n");
-      #endif
-    }
+      lastCutMillis = currMillis;
   }
 
-#ifdef USE_HALL
-  // Use hall sensor value instead of fixed cutoff time
-  if ((hallValue >= gearSensitivity) && ignitionDisabled) // && currMillis >= (lastCutMillis + delayTime + 25)) 
+  // Enable ignition 1 when dog rings touching
+  //if (coilsDisabled == 2 && currMillis >= (lastCutMillis + 50))
+  if (coilsDisabled == 2 && currMillis >= (lastCutMillis + cfg.cutTime1[currRpmRange]))
   {
-    finishedMillis = currMillis;
+    enable_ign_1();
+    coilsDisabled = 1;
   }
 
-  // Add 5ms of delay after hall sensor detected shift complete, just to be safe (or enable instantly when downshift is detected)
-  if (((finishedMillis >= (currMillis + 5)) || hallValue <= cancelSensitivity) && ignitionDisabled)
+  // Enable ignition 2 when gear fully engaged
+  //if (coilsDisabled == 1 && currMillis >= (lastCutMillis + 55))
+  if (coilsDisabled == 1 && currMillis >= (lastCutMillis + cfg.cutTime2[currRpmRange]))
   {
-    enable_ign();
-    ignitionDisabled = false;
-    //Serial.println("Ignition enabled - (hall sensor detected upshift complete");
+    enable_ign_2();
+    coilsDisabled = 0;
   }
-
-  // Reset cooldown after hall sensor detected shift lever in center position
-  if (sensorValue < cutSensitivity && shiftCooldown)
-  {
-    if ((hallValue <= (centerSensitivity + hallTolerance) && hallValue >= (centerSensitivity - hallTolerance)) || (currMillis >= (lastCutMillis + delayTime + cutSafeTime)))
-    {
-      shiftCooldown = false;
-    }
-  }
-#else
-  // Enable Ignition when cutTime has passed
-  if (currMillis >= (lastCutMillis + delayTime + cutTime) && ignitionDisabled)
-  {
-    enable_ign();
-    ignitionDisabled = false;
-
-    #ifdef DEBUG_SHIFT
-      Serial.print(currMillis); Serial.println(" - Shift complete (Ignition Enabled, cutTime passed)\n");
-    #endif
-  }
-
-  // Reset cooldown when reset sensor threshold is reached and cutTime + delayTime has passed
-  if (sensorValue < cutSensitivity && (currMillis >= (lastCutMillis + delayTime + cutTime + deadTime)) && shiftCooldown)
-  {
-    shiftCooldown = false;
-  }
-#endif
-
 
 
   /* ######################### RPM Calculation ######################### */
@@ -256,15 +345,10 @@ void loop()
   if (currMillis >= (lastPulseMillis + rpmLoopTime))
   {
     noInterrupts();
-    lastRPM = (pulseCount * 60 * ((1000 / rpmLoopTime)));
-    //lastRPM = 6000;
+    lastRPM = (pulseCount * rpmFactor * cfg.rpmMult);
     pulseCount = 0;
     interrupts();
 
     lastPulseMillis = currMillis;
-
-    #ifdef DEBUG_RPM
-      Serial.print(currMillis); Serial.print(" - RPM: "); Serial.println(lastRPM);
-    #endif
   }
 }
