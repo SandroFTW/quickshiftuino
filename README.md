@@ -1,15 +1,13 @@
 # quickshiftuino
-## Latest development (edited 26.03.2024)
-So the system has been running great for the last few months!
+## Latest development (edited 10.07.2024)
+The second revision PCB is finally completed and already ordered. It's the most versatile it can get.
+You have the choice between Piezo Sensor or Load Cell for shift detection. A hall sensor can be fitted to detect the shift lever position but you can also opt for fixed delay times.
+Another big improvement is the second MOSFET that can be individually switched. That way the power doesn't come back all at once but in two stages that are delayed to each other. Overall this makes the shifting a lot smoother and doesn't cause a short moment of traction loss when accelerating out of a turn.
 
-Besides a few false neutrals that can be reduced with a lower shift sensitivity I had no issues. Currently I'm still only using the Piezo sensor and I'm not planning on changing to the load cell.
-One idea to completely eliminate false neutrals and make configuration much easier was to add a hall sensor to the shift lever. This sensor can detect when the geear is fully engaged, which removes the need for set cutoff times.
+The new dimensions are 40 x 35 mm so it's also a LOT more compact now.
+Gerber files will be available after I did some testing.
 
-<img src='img/electronics.jpg' width='170'> <img src='img/harness.jpg' width='500'>
-
-The electronics are still in a very messy state but I haven't bothered changing anything because it's been working so well...
-
-The main box has two additional PCBs: A voltage divider for the piezo sensor and a filter circuit for RPM measurement directly from the ignition coil power line.
+<img src='img/pcb_r2.png' width='350'>
 
 <br>
 
