@@ -1,13 +1,12 @@
 # quickshiftuino
-## Latest development (edited 10.07.2024)
-The second revision PCB is finally completed and already ordered. It's the most versatile it can get.
-You have the choice between Piezo Sensor or Load Cell for shift detection. A hall sensor can be fitted to detect the shift lever position but you can also opt for fixed delay times.
-Another big improvement is the second MOSFET that can be individually switched. That way the power doesn't come back all at once but in two stages that are delayed to each other. Overall this makes the shifting a lot smoother and doesn't cause a short moment of traction loss when accelerating out of a turn.
-
+## Latest development (edited 21.08.2024)
 The new dimensions are 40 x 35 mm so it's also a LOT more compact now.
-Gerber files will be available after I did some testing.
+Gerber files and schematics are already available but still work in progress
 
-<img src='img/pcb_r2.png' width='350'>
+The second revision PCBs are currently being tested and seem to be working fairly stable. A few components need some more protection or higher voltage tolerance to ensure that they don't break in extreme conditions.
+I ordered some new tiny PCBs to hold a SOT23-3 hall sensor. The two stage ignition switching does a great job at reducing abrupt power engagement but it takes some tuning to get right. I'm hoping with the new hall sensor setup it will be much easier to get running perfectly smooth. Previous experiments have proven that this approach works well.
+
+<img src='img/r2_electronics.jpg' width='350'>
 
 <br>
 
@@ -23,7 +22,7 @@ My main idea was to keep it simple so it's as universal as possible. That's why 
 
 The V1 PCB had a few issues with the power switching logic (high side P-MOS was wired incorrectly):
 
-<img src='img/pcb.jpeg' width='350'>
+<img src='img/r1_electronics.jpg' width='350'>
 
 <br>
 
