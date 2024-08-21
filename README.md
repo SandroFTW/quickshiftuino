@@ -6,7 +6,7 @@ Gerber files and schematics are already available but still work in progress
 The second revision PCBs are currently being tested and seem to be working fairly stable. A few components need some more protection or higher voltage tolerance to ensure that they don't break in extreme conditions.
 I ordered some new tiny PCBs to hold a SOT23-3 hall sensor. The two stage ignition switching does a great job at reducing abrupt power engagement but it takes some tuning to get right. I'm hoping with the new hall sensor setup it will be much easier to get running perfectly smooth. Previous experiments have proven that this approach works well.
 
-<img src='img/r2_electronics.jpg' width='350'>
+<img src='img/r2_electronics.JPG' width='350'>
 
 <br>
 
