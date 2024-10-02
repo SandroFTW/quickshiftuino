@@ -7,6 +7,7 @@ Currently I'm developing a hall pressure sensor that mounts at one end of the sh
 Gerber files will be available after I did some testing.
 
 Previous R2 PCB that's almost the same as R3:
+
 <img src='img/r2_pcb.png' width='350'>
 
 <br>
@@ -28,7 +29,7 @@ http://192.168.4.1/debug.html/ shows output values of the selected sensors and t
 
 The R1 PCB had a few issues with the power switching logic (high side P-MOS was wired incorrectly):
 
-<img src='img/pcb.jpeg' width='350'>
+<img src='img/r1_pcb.jpeg' width='350'>
 
 For R2 many little bugs were resolved and the size drastically reduced.
 The MCU was also switched from an Arduino Nano to a much more powerful and compact ESP32 Mini (Waveshare).
