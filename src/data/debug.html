@@ -9,15 +9,18 @@
   <h2>Quickshiftuino Debug</h2>
   <p id="adcValue1">Connecting...</p>
   <p id="adcValue2">Connecting...</p>
+  <p id="adcValue3">Connecting...</p>
   <script>
     const adcValueElement1 = document.getElementById('adcValue1');
     const adcValueElement2 = document.getElementById('adcValue2');
+    const adcValueElement3 = document.getElementById('adcValue3');
     const ws = new WebSocket(`ws://${location.hostname}:81/`);
 
     ws.onmessage = function(event) {
-      const [adcValue1, adcValue2] = event.data.split(",");
+      const [adcValue1, adcValue2, adcValue3] = event.data.split(",");
       adcValueElement1.innerText = `Piezo: ${adcValue1}`;
       adcValueElement2.innerText = `RPM: ${adcValue2}`;
+      adcValueElement3.innerText = `Hall: ${adcValue3}`;
     };
   </script>
 </body>
