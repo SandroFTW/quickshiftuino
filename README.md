@@ -1,14 +1,4 @@
 # quickshiftuino
-<<<<<<< Updated upstream
-## Latest development (edited 21.08.2024)
-The new dimensions are 40 x 35 mm so it's also a LOT more compact now.
-Gerber files and schematics are already available but still work in progress
-
-The second revision PCBs are currently being tested and seem to be working fairly stable. A few components need some more protection or higher voltage tolerance to ensure that they don't break in extreme conditions.
-I ordered some new tiny PCBs to hold a SOT23-3 hall sensor. The two stage ignition switching does a great job at reducing abrupt power engagement but it takes some tuning to get right. I'm hoping with the new hall sensor setup it will be much easier to get running perfectly smooth. Previous experiments have proven that this approach works well.
-
-<img src='img/r2_electronics.JPG' width='350'>
-=======
 ## Latest development (edited 02.10.2024)
 The third revision (R3) PCB is done and ordered. I added Molex Picoblade connectors to the board for two hall sensor connections without soldering. The dimensions increased slightly from 35x40mm to 42x40mm.
 Vias are now also tented to prevent short circuits between Quickshiftuino PCB and the piggyback ESP32 Mini.
@@ -18,7 +8,6 @@ Gerber files will be available after I did some testing.
 
 Previous R2 PCB that's almost the same as R3:
 <img src='img/pcb_r2.png' width='350'>
->>>>>>> Stashed changes
 
 <br>
 
@@ -39,7 +28,7 @@ http://192.168.4.1/debug.html/ shows output values of the selected sensors and t
 
 The R1 PCB had a few issues with the power switching logic (high side P-MOS was wired incorrectly):
 
-<img src='img/r1_electronics.jpg' width='350'>
+<img src='img/pcb.jpeg' width='350'>
 
 For R2 many little bugs were resolved and the size drastically reduced.
 The MCU was also switched from an Arduino Nano to a much more powerful and compact ESP32 Mini (Waveshare).
