@@ -7,7 +7,7 @@ Currently I'm developing a hall pressure sensor that mounts at one end of the sh
 Gerber files will be available after I did some testing.
 
 Previous R2 PCB that's almost the same as R3:
-<img src='img/pcb_r2.png' width='350'>
+<img src='img/r2_pcb.png' width='350'>
 
 <br>
 
