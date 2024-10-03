@@ -69,3 +69,12 @@ I'm also thinking about either switching to an ESP32 MCU or adding a bluetooth m
 The V1 PCB design will be added and I will upload a few pictures and videos of the project in a few weeks.
 
 First test in the garage as a proof of concept: Video[https://youtu.be/FZ6roKEg_gY]
+
+## Dependencies
+- ESPAsyncWebServer (https://github.com/me-no-dev/ESPAsyncWebServer)
+- AsyncWebConfig (https://github.com/GerLech/AsyncWebConfig/)
+- AsyncTCP (https://github.com/dvarrel/AsyncTCP)
+- WebSockets (https://github.com/Links2004/arduinoWebSockets)
+
+AsyncWebConfig requires changing MAXVALUES in the header file from 20 to 30!; https://github.com/GerLech/AsyncWebConfig/blob/main/src/AsyncWebConfig.h#L32
+Don't use the ESPAsyncWebServer from the library manager, you need to manually install the one by me-no-dev.
