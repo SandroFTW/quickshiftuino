@@ -62,6 +62,8 @@ Shift lever pressure can be measured in two different ways with quickshiftuino.
   - Long term: Improve efficiency of config GUI code and move all non-quickshifter tasks to second MCU core (enables faster loop times, probably not necessary)
   - Fun project: 2-step RPM limiter for launch control or just cool flames out of the exhaust (relies on quick and precise RPM measurement)
   - Fun project: Add support for shift indicator LED using free GPIO pad on R3 PCB (could also be used for other practical indicators)
+  ### Hardware
+  - Use N-Mos instead of P-Mos (requires high side driver, e.g. DZDH0401DW-7, current total voltage drop ~0.3V, maybe 0.1V possible)
   
 Currently I am working on the second revision of the PCB which will have a few major issues resolved (mainly power switching logic).
 I'm also thinking about either switching to an ESP32 MCU or adding a bluetooth module to the PCB. This should enable changing configuration values without the need for a computer and Arduino IDE.
