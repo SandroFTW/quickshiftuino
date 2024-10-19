@@ -5,6 +5,9 @@
 #include <SPIFFS.h>
 #include <WiFi.h>
 
+// TODO: Check if lever moved from zero position after 20 ms otherwise cancel shift
+// -> Almost done, add more config options for tuning
+
 WebSocketsServer webSocket = WebSocketsServer(81);
 
 // MAIN CONFIGURATION
@@ -28,14 +31,22 @@ static unsigned long lastPulseMillis = 0; // Time of last RPM calculation
 static unsigned long lastCutMillis = 0;   // Time of last ignition cut begin
 static unsigned long currMillis = 0;      // millis()
 static unsigned long lastMillis = 0;      // Last cycle millis() (currMillis - loopTime)
-static volatile bool redLED = false;      // Used to toggle red LED on RPM pulse
 static unsigned int coilsDisabled = 0;    // Is ignition currently disabled?
-static volatile int pulseCount = 0;       // Ignition interrupt count since last RPM calculation
+volatile unsigned long pulseCount = 0;    // Ignition interrupt count since last RPM calculation
+static bool waitHyst = false;             // pressure sensor hysteresis
 static int currRpmRange = 0;              // 0-4 to choose cutoffTime from array
 static float lastRPM = 0;                 // Last calculated RPM
 
-static float pressureValue = 0;
-static float gearboxValue = 0;
+volatile bool redLED = false;             // Used to toggle red LED on RPM pulse
+volatile bool greenLED = false;           // Used to indicate position sensor state
+
+static int pressureValue = 0;
+static int gearboxValue = 0;
+
+hw_timer_t *Timer0_Cfg = NULL; // LED blink
+
+volatile unsigned long betaRPM = 0;
+hw_timer_t *Timer1_Cfg = NULL; // RPM
 
 String params = "["
   "{"
@@ -46,7 +57,7 @@ String params = "["
   "},"
   "{"
   "'name':'enable',"
-  "'label':'Enable Quickshiftuino',"
+  "'label':'Enable QS',"
   "'type':"+String(INPUTCHECKBOX)+","
   "'default':'1'"
   "},"
@@ -55,19 +66,19 @@ String params = "["
   "'label':'Trigger Mode',"
   "'type':"+String(INPUTSELECT)+","
   "'options':["
-  "{'v':'piezo','l':'Piezo'},"
-  "{'v':'hall','l':'Hall'},"
-  "{'v':'loadcell','l':'Loadcell'}],"
-  "'default':'hall'"
+  "{'v':'0','l':'Piezo'},"
+  "{'v':'1','l':'Hall'},"
+  "{'v':'2','l':'Loadcell'}],"
+  "'default':'1'"
   "},"
   "{"
   "'name':'enablemode',"
   "'label':'Enable Mode',"
   "'type':"+String(INPUTSELECT)+","
   "'options':["
-  "{'v':'static','l':'Static (Time)'},"
-  "{'v':'hall','l':'Hall'}],"
-  "'default':'hall'"
+  "{'v':'0','l':'Static (Time)'},"
+  "{'v':'1','l':'Hall'}],"
+  "'default':'1'"
   "},"
   "{"
   "'name':'invertpressure',"
@@ -180,24 +191,38 @@ String params = "["
   "},"
   "{"
   "'name':'cutsensitivity',"
-  "'label':'Cut sensitivity (0-100)',"
+  "'label':'Cut sensitivity (0-4095)',"
   "'type':"+String(INPUTNUMBER)+","
-  "'min':0,'max':2000,"
-  "'default':'250'"
+  "'min':0,'max':5000,"
+  "'default':'2500'"
+  "},"
+  "{"
+  "'name':'cuthysteresis',"
+  "'label':'Cut Hysteresis (0-4095)',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':0,'max':5000,"
+  "'default':'30'"
+  "},"
+  "{"
+  "'name':'hallcenter',"
+  "'label':'Hall centered (0-4095)',"
+  "'type':"+String(INPUTNUMBER)+","
+  "'min':0,'max':5000,"
+  "'default':'1800'"
   "},"
   "{"
   "'name':'halltouching',"
-  "'label':'Hall dogs touching (0-100)',"
+  "'label':'Hall dogs touching (0-4095)',"
   "'type':"+String(INPUTNUMBER)+","
-  "'min':0,'max':20000,"
+  "'min':0,'max':5000,"
   "'default':'2000'"
   "},"
   "{"
   "'name':'hallengaged',"
-  "'label':'Hall gear engaged (0-100)',"
+  "'label':'Hall gear engaged (0-4095)',"
   "'type':"+String(INPUTNUMBER)+","
-  "'min':0,'max':20000,"
-  "'default':'3000'"
+  "'min':0,'max':5000,"
+  "'default':'2200'"
   "},"
   "{"
   "'name':'twosteprpm',"
@@ -225,8 +250,8 @@ struct cfgOptions
 
   bool enable;
 
-  char trigMode[3];      // piezo, hall, loadcell
-  char enableMode[2];    // static, hall
+  int trigMode;      // 0 piezo, 1 hall, 2 loadcell
+  int enableMode;    // 0 static, 1 hall
 
   bool invertPressure;
   bool invertGearbox;
@@ -241,6 +266,8 @@ struct cfgOptions
   int deadTime;        // ms
 
   int cutSensitivity;
+  int cutHysteresis;
+  int hallCenter;
   int hallTouching;
   int hallEngaged;
 
@@ -254,8 +281,8 @@ void transferWebconfToStruct(String results)
 {
     cfg.enable = conf.getBool("enable");
 
-    cfg.trigMode = conf.getString("trigmode");
-    cfg.enableMode = conf.getString("enablemode");
+    cfg.trigMode = conf.getString("trigmode").toInt();
+    cfg.enableMode = conf.getString("enablemode").toInt();
 
     cfg.invertPressure = conf.getBool("invertpressure");
     cfg.invertGearbox = conf.getBool("invertgearbox");
@@ -279,6 +306,8 @@ void transferWebconfToStruct(String results)
     cfg.deadTime = conf.getInt("deadtime");
 
     cfg.cutSensitivity = conf.getInt("cutsensitivity");
+    cfg.cutHysteresis = conf.getInt("cuthysteresis");
+    cfg.hallCenter = conf.getInt("hallcenter");
     cfg.hallTouching = conf.getInt("halltouching");
     cfg.hallEngaged = conf.getInt("hallengaged");
 
@@ -296,13 +325,15 @@ void handleRoot(AsyncWebServerRequest *request)
   }*/
 }
 
+
+
 // Create a task that will be executed on Core 0 (instead of 1)
 TaskHandle_t Task1;
 void push_debug(void *parameters)
 {
   for (;;)
   {
-    String broadcastString = String(sensorValue) + "," + String(lastRPM) + "," + String(hallValue);
+    String broadcastString = String(pressureValue) + "," + String(gearboxValue) + "," + String(lastRPM) + "," + String(betaRPM);
 
     webSocket.loop();
     webSocket.broadcastTXT(broadcastString);
@@ -310,6 +341,37 @@ void push_debug(void *parameters)
     delay(50);
   }
 }
+
+// Interrupt Service Routine (ISR) for the timer
+void IRAM_ATTR Timer0_ISR()
+{
+  greenLED = !greenLED; // Toggle the LED state
+  digitalWrite(GREEN_LED, greenLED); // Set the LED pin
+}
+
+// Timer configuration by ChatGPT lol
+void setupTimer0(int frequency)
+{
+  // Detach timer to avoid conflicts
+  if (Timer0_Cfg != NULL)
+  {
+    timerDetachInterrupt(Timer0_Cfg);
+    timerEnd(Timer0_Cfg);
+  }
+
+  // Initialize timer (timer number 0, prescaler = 80, frequency in Hz)
+  Timer0_Cfg = timerBegin(0, 80, true); // Prescaler of 80 gives 1us resolution
+
+  // Set the compare value based on the desired frequency
+  int compareValue = 1000000 / (frequency * 2); // *2 for toggling on both compare events
+
+  // Set the timer to trigger interrupt at compare value
+  timerAttachInterrupt(Timer0_Cfg, &Timer0_ISR, true);  // ISR on compare match
+  timerAlarmWrite(Timer0_Cfg, compareValue, true);   // Set compare value and auto-reload
+  timerAlarmEnable(Timer0_Cfg);                      // Enable timer alarm (interrupt)
+}
+
+
 
 void disable_ign()
 {
@@ -326,7 +388,7 @@ void enable_ign_1()
 void enable_ign_2()
 {
   digitalWrite(IGN_FET_2, HIGH);
-  digitalWrite(GREEN_LED, HIGH);
+  //digitalWrite(GREEN_LED, HIGH);
 }
 
 void countPulse()
@@ -334,6 +396,9 @@ void countPulse()
   pulseCount++;
   digitalWrite(RED_LED, (redLED ? HIGH : LOW));
   redLED = !redLED;
+
+  betaRPM = 60000000 / timerReadMicros(Timer1_Cfg);
+  timerWrite(Timer1_Cfg, 0);
 }
 
 
@@ -358,6 +423,9 @@ void setup()
   pinMode(RPM_PIN, INPUT_PULLUP);
   attachInterrupt(RPM_PIN, countPulse, RISING);
 
+  // Timer 1 initialisieren (Timer 1, Prescaler = 80 -> 1µs Auflösung)
+  Timer1_Cfg = timerBegin(1, 80, true); // Verwende Timer 1 mit 1 µs Auflösung
+
   conf.setDescription(params);
   conf.readConfig();
   transferWebconfToStruct("");
@@ -377,6 +445,8 @@ void setup()
   server.begin();
   webSocket.begin();
 
+  setupTimer0(5);
+
   xTaskCreatePinnedToCore(push_debug, "CPU_0", 10000, NULL, 1, &Task1, 0);
 }
 
@@ -388,84 +458,108 @@ void loop()
   {
     switch (cfg.trigMode)
     {
-      case "piezo":
-        pressureValue = analogRead(PIEZO_PIN) / 40.95f;
+      case 0: // Piezo
+        pressureValue = analogRead(PIEZO_PIN);
         break;
 
-      case "hall":
-        pressureValue = analogRead(HALL2_PIN) / 40.95f;
+      case 1: // Hall
+        pressureValue = analogRead(HALL2_PIN);
         break;
 
-      case "loadcell":
+      case 2: // Loadcell
         pressureValue = 0.f;
         break;
     }
 
-    gearboxValue = analogRead(HALL1_PIN) / 40.95f;
+    gearboxValue = analogRead(HALL1_PIN);
 
-    if (cfg.invertPressure) pressureValue = 100.f - pressureValue;
-    if (cfg.invertGearbox) gearboxValue = 100.f - gearboxValue;
+    if (cfg.invertPressure)
+      pressureValue = 4095 - pressureValue;
+
+    if (cfg.invertGearbox)
+      gearboxValue = 4095 - gearboxValue;
 
     lastMillis = currMillis;
   }
 
-  /* ######################### Shift pressure detection and ignition cut ######################### */
-  // Disable ignition when pressure is sensed and sufficient RPM
-  if (lastRPM >= cfg.minRPM && coilsDisabled == 0 && pressureValue >= cfg.cutSensitivity && currMillis >= (lastCutMillis + cfg.deadTime))
+  // Skip all quickshifter features, only 2-step remains
+  if (cfg.enable)
   {
-      disable_ign();
-      coilsDisabled = 2;
-
-      currRpmRange = map(lastRPM, cfg.minRPM, cfg.maxRPM, 0, 4);
-
-      lastCutMillis = currMillis;
-  }
-
-  // Enable ignition 1 when dog rings touching or time 1 passed
-  if (coilsDisabled == 2)
-  {
-    if ((cfg.enableMode == "static" && currMillis >= (lastCutMillis + cfg.cutTime1[currRpmRange])) ||
-        (cfg.enableMode == "hall" && hallValue >= cfg.hallTouching))
+    /* ######################### Shift pressure detection and ignition cut ######################### */
+    // Disable ignition when pressure is sensed, sufficient RPM, deadTime passed and pressure was low before (hysteresis prevents continuous triggers when holding shift lever up in top gear)
+    if (lastRPM >= cfg.minRPM && coilsDisabled == 0 && waitHyst == false && pressureValue >= cfg.cutSensitivity && currMillis >= (lastCutMillis + cfg.deadTime))
+    {
+      // Don't trigger if gear lever has already moved beyond claw on claw position (e.g clutch pulled and upshifting)
+      if (!(cfg.enableMode == 1 && gearboxValue >= cfg.hallTouching))
+      {
+        disable_ign();
+        coilsDisabled = 2;
+        waitHyst = true;
+  
+        currRpmRange = map(lastRPM, cfg.minRPM, cfg.maxRPM, 0, 4);
+  
+        lastCutMillis = currMillis;
+      }
+    }
+  
+    // pressure sensor value went below hysteresis, re-enable triggering
+    if (pressureValue < (cfg.cutSensitivity - cfg.cutHysteresis))
+      waitHyst = false;
+  
+    // Enable ignition 1 when dog rings touching or time 1 passed
+    if (coilsDisabled == 2)
+    {
+      if ((cfg.enableMode == 0 && currMillis >= (lastCutMillis + cfg.cutTime1[currRpmRange])) ||
+           (cfg.enableMode == 1 && gearboxValue >= cfg.hallTouching))
+      {
+        enable_ign_1();
+        coilsDisabled = 1;
+      }
+    }
+  
+    // Enable ignition 2 when gear fully engaged or time 2 passed
+    if (coilsDisabled == 1)
+    {
+      if ((cfg.enableMode == 0 && currMillis >= (lastCutMillis + cfg.cutTime2[currRpmRange])) ||
+          (cfg.enableMode == 1 && gearboxValue >= cfg.hallEngaged))
+      {
+        enable_ign_2();
+        coilsDisabled = 0;
+      }
+    }
+  
+    // Enable ignition if gear lever hasn't left center position (upshifting in highest gear)
+//    if (coilsDisabled > 0 && (gearboxValue <= cfg.hallCenter + abs(cfg.hallTouching - cfg.hallCenter)/2) && currMillis >= (lastCutMillis + 30))
+//    {
+//      enable_ign_1();
+//      enable_ign_2();
+//      coilsDisabled = 0;
+//    }
+  
+    //Safety feature to prevent engine shutting off in case of an issue
+    if (coilsDisabled == 2 && currMillis >= (lastCutMillis + 250))
     {
       enable_ign_1();
       coilsDisabled = 1;
     }
-  }
-
-  // Enable ignition 2 when gear fully engaged or time 2 passed
-  if (coilsDisabled == 1)
-  {
-    if ((cfg.enableMode == "static" && currMillis >= (lastCutMillis + cfg.cutTime2[currRpmRange])) ||
-        (cfg.enableMode == "hall" && hallValue >= cfg.hallEngaged))
+    if (coilsDisabled == 1 && currMillis >= (lastCutMillis + 260))
     {
       enable_ign_2();
       coilsDisabled = 0;
     }
   }
 
-  //Safety feature to prevent engine shutting off in case of an issue
-  if (coilsDisabled == 2 && currMillis >= (lastCutMillis + 150))
-  {
-    enable_ign_1();
-    coilsDisabled = 1;
-  }
-  if (coilsDisabled == 1 && currMillis >= (lastCutMillis + 160))
-  {
-    enable_ign_2();
-    coilsDisabled = 0;
-  }
-
-
   /* ######################### Two Step Rev Limiter ######################### */
   // (just for fun, WIP)
-  if (cfg.twoStepRPM > 0)
+  if (cfg.twoStepRPM > 0 && !cfg.enable)
   {
-    if (lastRPM > cfg.twoStepRPM)
+    if (coilsDisabled == 0 && betaRPM > cfg.twoStepRPM)
     {
       disable_ign();
       coilsDisabled = 2;
+      lastCutMillis = currMillis;
     }
-    else if (lastRPM < (cfg.twoStepRPM - cfg.twoStepHyst))
+    else if (coilsDisabled > 0 && currMillis >= (lastCutMillis + cfg.twoStepHyst))
     {
       enable_ign_1();
       enable_ign_2();

@@ -10,17 +10,20 @@
   <p id="adcValue1">Connecting...</p>
   <p id="adcValue2">Connecting...</p>
   <p id="adcValue3">Connecting...</p>
+  <p id="adcValue4">Connecting...</p>
   <script>
     const adcValueElement1 = document.getElementById('adcValue1');
     const adcValueElement2 = document.getElementById('adcValue2');
     const adcValueElement3 = document.getElementById('adcValue3');
+    const adcValueElement4 = document.getElementById('adcValue4');
     const ws = new WebSocket(`ws://${location.hostname}:81/`);
 
     ws.onmessage = function(event) {
-      const [adcValue1, adcValue2, adcValue3] = event.data.split(",");
-      adcValueElement1.innerText = `Piezo: ${adcValue1}`;
-      adcValueElement2.innerText = `RPM: ${adcValue2}`;
-      adcValueElement3.innerText = `Hall: ${adcValue3}`;
+      const [adcValue1, adcValue2, adcValue3, adcValue4] = event.data.split(",");
+      adcValueElement1.innerText = `Pressure: ${adcValue1}`;
+      adcValueElement2.innerText = `Gearbox: ${adcValue2}`;
+      adcValueElement3.innerText = `RPM: ${adcValue3}`;
+      adcValueElement4.innerText = `Debug: ${adcValue4}`;
     };
   </script>
 </body>
