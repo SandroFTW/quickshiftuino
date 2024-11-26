@@ -64,6 +64,10 @@ Shift lever pressure can be measured in two different ways with quickshiftuino.
   - Fun project: Add support for shift indicator LED using free GPIO pad on R3 PCB (could also be used for other practical indicators)
   ### Hardware
   - Use N-Mos instead of P-Mos (requires high side driver, e.g. DZDH0401DW-7, current total voltage drop ~0.3V, maybe 0.1V possible)
+
+The current design might cause unwanted pre-ignition if the coil power is cut during the dwell time. I haven't noticed this happening but there would be 2 approaches to prevent this:
+- Switch to a N-Mos pull down design that overrides the ECU signal and keeps the coil pulled low (less complicated wiring but more heat/current in the coil)
+- Only allow ignition cuts for a certain time after the coil has fired (maybe even RPM based, keeps current hardware)
   
 Currently I am working on the second revision of the PCB which will have a few major issues resolved (mainly power switching logic).
 I'm also thinking about either switching to an ESP32 MCU or adding a bluetooth module to the PCB. This should enable changing configuration values without the need for a computer and Arduino IDE.
