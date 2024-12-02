@@ -25,7 +25,7 @@ Configuration is possible though a locally hosted web-interface. Simply connect 
 http://192.168.4.1/ gives access to the config page.
 http://192.168.4.1/debug.html/ shows output values of the selected sensors and the current RPM value. This is helpful for finetuning parameters.
 
-<img src='img/config.jpg' width='300'>
+<img src='img/config.png' width='300'>
 
 <br>
 
