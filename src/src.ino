@@ -32,7 +32,7 @@ static unsigned long lastCutMillis = 0;   // Time of last ignition cut begin
 static unsigned long currMillis = 0;      // millis()
 static unsigned long lastMillis = 0;      // Last cycle millis() (currMillis - loopTime)
 static unsigned int coilsDisabled = 0;    // Is ignition currently disabled?
-static bool waitHyst = false;             // pressure sensor hysteresis
+static bool waitHyst = true;              // pressure sensor hysteresis
 static int currRpmRange = 0;              // 0-4 to choose cutoffTime from array
 volatile bool redLED = false;             // Used to toggle red LED on RPM pulse
 volatile bool greenLED = false;           // Used to indicate position sensor state
@@ -41,8 +41,10 @@ static int pressureValue = 0;
 static int gearboxValue = 0;
 
 hw_timer_t *Timer0_Cfg = NULL; // LED blink
+volatile int cycleCounter = 0;
 
 volatile float lastRPM = 0;
+volatile float quickRPM = 0;
 volatile uint8_t average_count = 0;
 hw_timer_t *Timer1_Cfg = NULL; // RPM
 
@@ -86,35 +88,35 @@ String params = "["
   "'label':'First Cut (2500-4500)',"
   "'type':"+String(INPUTNUMBER)+","
   "'min':0,'max':500,"
-  "'default':'58'"
+  "'default':'66'"
   "},"
   "{"
   "'name':'cuttime_2',"
   "'label':'First Cut (4500-6500)',"
   "'type':"+String(INPUTNUMBER)+","
   "'min':0,'max':500,"
-  "'default':'56'"
+  "'default':'64'"
   "},"
   "{"
   "'name':'cuttime_3',"
   "'label':'First Cut (6500-8500)',"
   "'type':"+String(INPUTNUMBER)+","
   "'min':0,'max':500,"
-  "'default':'54'"
+  "'default':'64'"
   "},"
   "{"
   "'name':'cuttime_4',"
   "'label':'First Cut (8500-10500)',"
   "'type':"+String(INPUTNUMBER)+","
   "'min':0,'max':500,"
-  "'default':'52'"
+  "'default':'62'"
   "},"
   "{"
   "'name':'cuttime_5',"
   "'label':'First Cut (10500-12500)',"
   "'type':"+String(INPUTNUMBER)+","
   "'min':0,'max':500,"
-  "'default':'50'"
+  "'default':'60'"
   "},"
   "{"
   "'name':'cutsmooth',"
@@ -122,11 +124,11 @@ String params = "["
   "'type':"+String(INPUTSELECT)+","
   "'options':["
   "{'v':'0','l':'Very Hard (0 ms)'},"
-  "{'v':'2','l':'Hard (2 ms)'},"
-  "{'v':'4','l':'Medium (4 ms)'},"
-  "{'v':'6','l':'Soft (6 ms)'},"
-  "{'v':'8','l':'Very Soft (8 ms)'}],"
-  "'default':'4'"
+  "{'v':'2','l':'Hard (4 ms)'},"
+  "{'v':'4','l':'Medium (8 ms)'},"
+  "{'v':'6','l':'Soft (12 ms)'},"
+  "{'v':'8','l':'Very Soft (16 ms)'}],"
+  "'default':'8'"
   "},"
     "{"
   "'name':'cutmax',"
@@ -170,14 +172,14 @@ String params = "["
   "'label':'Cut sensitivity (0-4095)',"
   "'type':"+String(INPUTNUMBER)+","
   "'min':0,'max':5000,"
-  "'default':'850'"
+  "'default':'950'"
   "},"
   "{"
   "'name':'cuthysteresis',"
   "'label':'Cut Hysteresis (0-4095)',"
   "'type':"+String(INPUTNUMBER)+","
   "'min':0,'max':5000,"
-  "'default':'100'"
+  "'default':'300'"
   "},"
   "{"
   "'name':'hallcenter',"
@@ -212,11 +214,17 @@ String params = "["
   "'label':'2-Step Cut (ms)',"
   "'type':"+String(INPUTNUMBER)+","
   "'min':1,'max':1000,"
-  "'default':'200'"
+  "'default':'40'"
   "},"
   "{"
   "'name':'beta',"
   "'label':'Beta Features',"
+  "'type':"+String(INPUTCHECKBOX)+","
+  "'default':'0'"
+  "},"
+  "{"
+  "'name':'testmode',"
+  "'label':'Test functionality',"
   "'type':"+String(INPUTCHECKBOX)+","
   "'default':'0'"
   "}"
@@ -255,6 +263,7 @@ struct cfgOptions
   int twoStepCut;
 
   bool beta;
+  bool testmode;
 } cfg;
 
 
@@ -291,6 +300,7 @@ void transferWebconfToStruct(String results)
     cfg.twoStepCut = conf.getInt("twostepcut");
 
     cfg.beta = conf.getBool("beta");
+    cfg.testmode = conf.getBool("testmode");
 }
 
 void handleRoot(AsyncWebServerRequest *request)
@@ -323,8 +333,32 @@ void push_debug(void *parameters)
 // Interrupt Service Routine (ISR) for the timer
 void IRAM_ATTR Timer0_ISR()
 {
-  greenLED = !greenLED; // Toggle the LED state
-  digitalWrite(GREEN_LED, greenLED); // Set the LED pin
+  if (cfg.testmode)
+  {
+    cycleCounter++;
+    if (cycleCounter == 1)
+    {
+      greenLED = true;
+      digitalWrite(GREEN_LED, greenLED);
+      disable_ign();
+    }
+    else if (cycleCounter >= 10)
+    {
+      // Turn the LED OFF after 9 more cycles (total 5 cycles = 500ms)
+      greenLED = false;
+      digitalWrite(GREEN_LED, greenLED);
+      enable_ign_1();
+      enable_ign_2();
+      cycleCounter = 0;  // Reset the cycle counter
+    }
+  }
+  else if (!cfg.testmode && greenLED)
+  {
+    greenLED = false;
+    enable_ign_1();
+    enable_ign_2();
+    cycleCounter = 0;
+  }
 }
 
 // Timer configuration by ChatGPT lol
@@ -341,7 +375,7 @@ void setupTimer0(int frequency)
   Timer0_Cfg = timerBegin(1000000); // Prescaler of 80 gives 1us resolution
 
   // Set the compare value based on the desired frequency
-  int compareValue = 1000000 / (frequency * 2); // *2 for toggling on both compare events
+  int compareValue = 1000000 / (frequency); // *2 for toggling on both compare events
 
   // Set the timer to trigger interrupt at compare value
   timerAttachInterrupt(Timer0_Cfg, &Timer0_ISR);  // ISR on compare match
@@ -373,16 +407,18 @@ void countPulse()
   digitalWrite(RED_LED, (redLED ? HIGH : LOW));
   redLED = !redLED;
 
-  // if (average_count < 5)
-  // {
-  //   average_count++;
-  //   return;
-  // }
+  quickRPM = 60000000 / timerReadMicros(Timer1_Cfg) * cfg.rpmMult;
 
-  //lastRPM = ((5 * 60000000) / timerReadMicros(Timer1_Cfg)) * cfg.rpmMult;
-  lastRPM = 60000000 / timerReadMicros(Timer1_Cfg); //* cfg.rpmMult;
+  if (average_count < 5)
+  {
+    average_count++;
+    return;
+  }
+
+  lastRPM = ((5 * 60000000) / timerReadMicros(Timer1_Cfg)) * cfg.rpmMult;
+  //lastRPM = 60000000 / timerReadMicros(Timer1_Cfg); //* cfg.rpmMult;
   timerWrite(Timer1_Cfg, 0);
-  //average_count = 0;
+  average_count = 0;
 }
 
 
@@ -431,7 +467,7 @@ void setup()
   server.begin();
   webSocket.begin();
 
-  setupTimer0(1);
+  setupTimer0(10);
 
   xTaskCreatePinnedToCore(push_debug, "CPU_0", 10000, NULL, 1, &Task1, 0);
 }
@@ -477,6 +513,10 @@ void loop()
   // Skip all quickshifter features, only 2-step remains
   if (cfg.enable)
   {
+    // If no new RPM value since 500ms set RPM to 0
+    if (timerReadMicros(Timer1_Cfg) > 500000)
+      lastRPM = 0;
+
     // pressure sensor value went below hysteresis, re-enable triggering
     if (pressureValue < (cfg.cutSensitivity - cfg.cutHysteresis))
       waitHyst = false;
@@ -549,7 +589,7 @@ void loop()
   // (just for fun, WIP)
   if (cfg.twoStepRPM > 0)
   {
-    if (coilsDisabled == 0 && lastRPM > cfg.twoStepRPM)
+    if (coilsDisabled == 0 && quickRPM > cfg.twoStepRPM)
     {
       disable_ign();
       coilsDisabled = 2;
